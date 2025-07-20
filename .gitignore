@@ -11,9 +11,9 @@
 *.test
 *.out
 
-# Built Traefik binary (ignore in any bin folder)
-**/bin/
-**/bin/traefik
+# Built Traefik binaries or other builds (keep folder, ignore contents)
+polaredge-agent/bin/*
+!polaredge-agent/bin/.gitkeep
 
 # Code coverage profiles and other test artifacts
 coverage.*
