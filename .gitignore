@@ -1,0 +1,47 @@
+# ========================
+# Golang + Traefik Ignore
+# ========================
+
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Built Traefik binary (ignore in any bin folder)
+**/bin/
+**/bin/traefik
+
+# Code coverage profiles and other test artifacts
+coverage.*
+*.coverprofile
+*.cov
+profile.cov
+
+# Dependency directories
+vendor/
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Environment config
+.env
+
+# IDE/editor folders
+.idea/
+.vscode/
+
+# OS junk files
+**/.DS_Store
+Thumbs.db
+
+# Git backup/merge/conflict
+*.orig
+*.rej
+
+# Logs
+*.log
