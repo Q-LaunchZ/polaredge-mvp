@@ -3,12 +3,14 @@ package watcher
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -25,19 +27,19 @@ func GetIngresses() []Ingress {
 	kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "config")
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading kubeconfig: %v\n", err)
+		log.Printf("Error loading kubeconfig: %v\n", err)
 		return ingresses
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating clientset: %v\n", err)
+		log.Printf("Error creating clientset: %v\n", err)
 		return ingresses
 	}
 
 	allIngresses, err := clientset.NetworkingV1().Ingresses("").List(context.Background(), metav1.ListOptions{})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error listing ingresses: %v\n", err)
+		log.Printf("Error listing ingresses: %v\n", err)
 		return ingresses
 	}
 
@@ -57,14 +59,49 @@ func GetIngresses() []Ingress {
 	return ingresses
 }
 
-// GetIngressManifest returns ingress data as JSON bytes
-func GetIngressManifest() []byte {
-	raw := GetIngresses()
-
-	data, err := json.MarshalIndent(raw, "", "  ")
+// EncodeIngresses returns ingress data as JSON bytes
+func EncodeIngresses(ings []Ingress) []byte {
+	data, err := json.MarshalIndent(ings, "", "  ")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error encoding ingress manifest: %v\n", err)
+		log.Printf("❌ Marshal error: %v", err)
 		return nil
 	}
 	return data
+}
+
+// StartWatcher triggers the callback on add/update/delete of any Ingress
+func StartWatcher(onChange func([]Ingress)) {
+	kubeconfig := filepath.Join(os.Getenv("HOME"), ".kube", "config")
+	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	if err != nil {
+		log.Fatalf("load kubeconfig: %v", err)
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		log.Fatalf("create clientset: %v", err)
+	}
+
+	factory := informers.NewSharedInformerFactory(clientset, 0)
+	ingressInformer := factory.Networking().V1().Ingresses().Informer()
+
+	ingressInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			log.Println("🆕 Ingress added")
+			onChange(GetIngresses())
+		},
+		UpdateFunc: func(oldObj, newObj interface{}) {
+			log.Println("🔄 Ingress updated")
+			onChange(GetIngresses())
+		},
+		DeleteFunc: func(obj interface{}) {
+			log.Println("❌ Ingress deleted")
+			onChange(GetIngresses())
+		},
+	})
+
+	stop := make(chan struct{})
+	factory.Start(stop)
+	factory.WaitForCacheSync(stop)
+	<-stop // block forever
 }

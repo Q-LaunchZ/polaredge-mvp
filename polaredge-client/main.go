@@ -24,22 +24,33 @@ func sendWithRetries(manifest []byte, retries int) bool {
 	return false
 }
 
+func refreshAndSend() {
+	log.Println("🔁 Refresh triggered.")
+	ings := watcher.GetIngresses()
+	data := watcher.EncodeIngresses(ings)
+	if ok := sendWithRetries(data, 3); !ok {
+		fmt.Println(string(data)) // fallback output
+	}
+}
+
 func main() {
-	reader := bufio.NewReader(os.Stdin)
-	log.Println("📡 POLAREDGE Client started.")
-	log.Println("Press 'r' to refresh and re-send ingress manifest.")
+	log.Println("📡 POLAREDGE Client (Hybrid Mode)")
+	log.Println("Press 'r' to manually trigger a refresh")
 
-	for {
-		log.Print("⏳ Waiting for input... ")
-		input, _ := reader.ReadString('\n')
-
-		if input == "r\n" || input == "R\n" {
-			log.Println("🔁 Refresh triggered.")
-			manifest := watcher.GetIngressManifest()
-			ok := sendWithRetries(manifest, 3)
-			if !ok {
-				fmt.Println(string(manifest)) // fallback print
+	// 1. Start keyboard listener in background
+	go func() {
+		reader := bufio.NewReader(os.Stdin)
+		for {
+			input, _ := reader.ReadString('\n')
+			if input == "r\n" || input == "R\n" {
+				refreshAndSend()
 			}
 		}
-	}
+	}()
+
+	// 2. Start Kubernetes ingress watcher
+	watcher.StartWatcher(func(_ []watcher.Ingress) {
+		log.Println("📶 Ingress event detected")
+		refreshAndSend()
+	})
 }
