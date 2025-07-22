@@ -2,14 +2,27 @@ package renderer
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
-	"polaredge-client/internal/watcher"
 )
 
-func RenderTOML(ingresses []watcher.Ingress) string {
+// Ingress is the same structure as what client sends
+type Ingress struct {
+	Host        string `json:"host"`
+	ServiceName string `json:"serviceName"`
+	ServicePort int    `json:"servicePort"`
+}
+
+// RenderTOMLFromJSON renders full TOML config from raw JSON ingress list
+func RenderTOMLFromJSON(raw []byte) (string, error) {
+	var ingresses []Ingress
+	if err := json.Unmarshal(raw, &ingresses); err != nil {
+		return "", fmt.Errorf("unmarshal ingress list: %w", err)
+	}
+
 	var buf bytes.Buffer
 
-	// 1. Generate [entryPoints]
+	// 1. EntryPoints
 	buf.WriteString("[entryPoints]\n")
 	seenPorts := make(map[int]string)
 	for _, ing := range ingresses {
@@ -69,10 +82,9 @@ func RenderTOML(ingresses []watcher.Ingress) string {
 		}
 	}
 
-	return buf.String()
+	return buf.String(), nil
 }
 
-// EntryPoint naming logic
 func getEntryPointName(port int) string {
 	switch port {
 	case 80:

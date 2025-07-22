@@ -2,6 +2,7 @@ package watcher
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,11 +13,12 @@ import (
 )
 
 type Ingress struct {
-	Host        string
-	ServiceName string
-	ServicePort int
+	Host        string `json:"host"`
+	ServiceName string `json:"serviceName"`
+	ServicePort int    `json:"servicePort"`
 }
 
+// GetIngresses scans the cluster and returns ingress metadata
 func GetIngresses() []Ingress {
 	var ingresses []Ingress
 
@@ -53,4 +55,16 @@ func GetIngresses() []Ingress {
 	}
 
 	return ingresses
+}
+
+// GetIngressManifest returns ingress data as JSON bytes
+func GetIngressManifest() []byte {
+	raw := GetIngresses()
+
+	data, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error encoding ingress manifest: %v\n", err)
+		return nil
+	}
+	return data
 }

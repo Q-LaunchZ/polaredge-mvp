@@ -3,17 +3,16 @@ package main
 import (
 	"fmt"
 	"log"
-	"polaredge-client/internal/renderer"
 	"polaredge-client/internal/sender"
 	"polaredge-client/internal/watcher"
 )
 
 func main() {
-	ingresses := watcher.GetIngresses()
-	tomlOutput := renderer.RenderTOML(ingresses)
+	manifest := watcher.GetIngressManifest()
 
-	if err := sender.Send("localhost:9005", []byte(tomlOutput)); err != nil {
-		log.Printf("⚠️  socket send failed (%v). Falling back to stdout.\n", err)
-		fmt.Println(tomlOutput)
+	if err := sender.SendWithAck("localhost:9005", manifest); err != nil {
+		log.Printf("⚠️  SendWithAck failed (%v). Falling back to stdout.\n", err)
+		fmt.Println(string(manifest))
 	}
+	fmt.Printf("TCP: OK\n")
 }
