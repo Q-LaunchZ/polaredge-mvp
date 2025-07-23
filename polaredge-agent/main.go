@@ -19,8 +19,10 @@ const (
 	socketPort = ":9005"
 )
 
-var queue = make(chan []byte, 100)
-var processing sync.Mutex
+var (
+	queue      = make(chan []byte, 100)
+	processing sync.Mutex
+)
 
 func getFreePortInRange(min, max int) (int, error) {
 	for port := min; port <= max; port++ {
@@ -47,11 +49,11 @@ func handle(conn net.Conn) {
 	data := buf[:n]
 	log.Printf("📥 Received %d bytes", len(data))
 
-	// ✅ Confirm to client: it's accepted and safe
+	// Confirm receipt to client immediately
 	_, _ = conn.Write([]byte("ok"))
 	log.Println("📬 Acknowledged to client: ok")
 
-	// 🔁 Queue it for async processing
+	// Queue for background processing
 	queue <- data
 }
 
