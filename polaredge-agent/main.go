@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"polaredge-agent/internal/renderer"
 	"polaredge-agent/internal/traefik"
+	"sync"
 	"time"
 )
 
@@ -17,6 +18,9 @@ const (
 	portMax    = 7100
 	socketPort = ":9005"
 )
+
+var queue = make(chan []byte, 100)
+var processing sync.Mutex
 
 func getFreePortInRange(min, max int) (int, error) {
 	for port := min; port <= max; port++ {
@@ -33,8 +37,7 @@ func getFreePortInRange(min, max int) (int, error) {
 func handle(conn net.Conn) {
 	defer conn.Close()
 
-	// Fix: read once with timeout instead of blocking forever
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	buf := make([]byte, 65536)
 	n, err := conn.Read(buf)
 	if err != nil {
@@ -44,15 +47,23 @@ func handle(conn net.Conn) {
 	data := buf[:n]
 	log.Printf("📥 Received %d bytes", len(data))
 
-	// Render TOML
-	toml, err := renderer.RenderTOMLFromJSON(data)
+	// ✅ Confirm to client: it's accepted and safe
+	_, _ = conn.Write([]byte("ok"))
+	log.Println("📬 Acknowledged to client: ok")
+
+	// 🔁 Queue it for async processing
+	queue <- data
+}
+
+func processManifest(data []byte) {
+	defer processing.Unlock()
+
+	toml, err := renderer.RenderTOMLFromJSONWithPrompt(data)
 	if err != nil {
 		log.Printf("❌ Failed to render TOML: %v", err)
-		_, _ = conn.Write([]byte("error"))
 		return
 	}
 
-	// Save to config file
 	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
 		log.Printf("mkdir error: %v", err)
 		return
@@ -63,15 +74,18 @@ func handle(conn net.Conn) {
 	}
 	log.Printf("✅ TOML written to %s", configPath)
 
-	// Respond to client
-	_, _ = conn.Write([]byte("ok"))
-
-	// Run Traefik
 	log.Println("🔁 Starting Traefik with new config...")
 	if err := traefik.RunWithConfig(configPath); err != nil {
 		log.Printf("❌ Traefik reload failed: %v", err)
 	} else {
 		log.Println("🚀 Traefik exited cleanly.")
+	}
+}
+
+func queueWorker() {
+	for data := range queue {
+		processing.Lock()
+		processManifest(data)
 	}
 }
 
@@ -103,6 +117,8 @@ func main() {
 		log.Fatalf("listen error: %v", err)
 	}
 	log.Printf("📡 Agent listening on %s", socketPort)
+
+	go queueWorker()
 
 	for {
 		conn, err := listener.Accept()
