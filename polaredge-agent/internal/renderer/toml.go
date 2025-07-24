@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 // Ingress is the same structure as what client sends
@@ -35,7 +36,6 @@ func RenderTOMLFromJSONWithPrompt(raw []byte) (string, error) {
 		return "", fmt.Errorf("unmarshal ingress list: %w", err)
 	}
 
-	reader := bufio.NewReader(os.Stdin)
 	filtered := []Ingress{}
 	seen := make(map[string]bool)
 
@@ -68,10 +68,10 @@ func RenderTOMLFromJSONWithPrompt(raw []byte) (string, error) {
 		fmt.Println("\nChoose exposure mode:")
 		fmt.Println("    [Y] Public (expose via Traefik)")
 		fmt.Println("    [P] Private (cluster-only)")
-		fmt.Println("    [N] Off (ignore, no exposure) ← default in 30s")
+		fmt.Println("    [N] Off (ignore, no exposure) ← default in 60s")
 		fmt.Print("\nYour choice [N/Y/P]: ")
 
-		choice, _ := reader.ReadString('\n')
+		choice := getUserChoiceWithCountdownClean(60 * time.Second)
 		choice = strings.TrimSpace(strings.ToLower(choice))
 
 		switch choice {
@@ -167,4 +167,32 @@ func getEntryPointName(port int) string {
 	default:
 		return fmt.Sprintf("port%d", port)
 	}
+}
+
+// Clean countdown + input fallback after timeout
+func getUserChoiceWithCountdownClean(timeout time.Duration) string {
+	inputCh := make(chan string, 1)
+
+	go func() {
+		reader := bufio.NewReader(os.Stdin)
+		text, _ := reader.ReadString('\n')
+		inputCh <- text
+	}()
+
+	start := int(timeout.Seconds())
+
+	for i := start; i > 0; i-- {
+		fmt.Printf("\r⌛ %d seconds remaining... ", i)
+		select {
+		case input := <-inputCh:
+			fmt.Print("\r\033[K") // clear line
+			return input
+		case <-time.After(1 * time.Second):
+			continue
+		}
+	}
+
+	fmt.Print("\r\033[K") // clear line
+	fmt.Println("⏱️ No response — defaulting to [N]")
+	return "n"
 }
