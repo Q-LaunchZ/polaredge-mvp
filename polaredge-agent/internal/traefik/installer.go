@@ -2,6 +2,7 @@ package traefik
 
 import (
 	"archive/tar"
+	"bufio"
 	"compress/gzip"
 	"encoding/json"
 	"errors"
@@ -170,18 +171,30 @@ func RunWithConfig(configPath string) error {
 	}
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("traefik failed to start: %w", err)
+		return fmt.Errorf("❌ Traefik failed to start: %w", err)
 	}
 
-	go io.Copy(os.Stdout, stdout)
-	go io.Copy(os.Stderr, stderr)
+	// Stream logs live
+	go streamTaggedLogs(stdout, "[TRAEFIK]")
+	go streamTaggedLogs(stderr, "[TRAEFIK][ERR]")
 
-	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("traefik exited with error: %w", err)
-	}
+	// Wait for process to finish in background
+	go func() {
+		if err := cmd.Wait(); err != nil {
+			fmt.Printf("❌ Traefik exited with error: %s\n", err)
+		} else {
+			fmt.Println("🛑 Traefik exited cleanly.")
+		}
+	}()
 
-	fmt.Println("🚀 Traefik exited cleanly.")
 	return nil
+}
+
+func streamTaggedLogs(r io.ReadCloser, tag string) {
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		fmt.Printf("%s %s\n", tag, scanner.Text())
+	}
 }
 
 func Verify() error {
