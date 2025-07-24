@@ -24,6 +24,7 @@ var (
 	processing sync.Mutex
 )
 
+// getFreePortInRange returns a free port within the defined port range.
 func getFreePortInRange(min, max int) (int, error) {
 	for port := min; port <= max; port++ {
 		addr := fmt.Sprintf(":%d", port)
@@ -36,6 +37,7 @@ func getFreePortInRange(min, max int) (int, error) {
 	return 0, fmt.Errorf("no free port found in range %d–%d", min, max)
 }
 
+// handle manages a single TCP connection from the client.
 func handle(conn net.Conn) {
 	defer conn.Close()
 
@@ -48,13 +50,14 @@ func handle(conn net.Conn) {
 	}
 	data := buf[:n]
 
-	// Confirm receipt to client immediately
+	// Confirm receipt to client
 	_, _ = conn.Write([]byte("ok"))
 
-	// Queue for background processing
+	// Queue data for async processing
 	queue <- data
 }
 
+// processManifest renders and applies the new TOML manifest.
 func processManifest(data []byte) {
 	defer processing.Unlock()
 
@@ -65,16 +68,16 @@ func processManifest(data []byte) {
 	}
 
 	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
-		log.Printf("mkdir error: %v", err)
+		log.Printf("❌ mkdir error: %v", err)
 		return
 	}
 	if err := os.WriteFile(configPath, []byte(toml), 0644); err != nil {
-		log.Printf("file write error: %v", err)
+		log.Printf("❌ file write error: %v", err)
 		return
 	}
 	log.Printf("✅ TOML written to %s", configPath)
 
-	log.Println("🔁 Starting Traefik with new config...")
+	log.Println("🔁 Reloading Traefik with new config...")
 	if err := traefik.RunWithConfig(configPath); err != nil {
 		log.Printf("❌ Traefik reload failed: %v", err)
 	} else {
@@ -82,6 +85,7 @@ func processManifest(data []byte) {
 	}
 }
 
+// queueWorker processes queued manifest updates sequentially.
 func queueWorker() {
 	for data := range queue {
 		processing.Lock()
@@ -89,41 +93,44 @@ func queueWorker() {
 	}
 }
 
+// main initializes and runs the POLAREDGE agent.
 func main() {
 	log.Println("🚀 POLAREDGE Agent starting...")
 
+	// Ensure Traefik is installed
 	if !traefik.IsInstalled() {
-		fmt.Println("⚠️  Traefik not found.")
+		log.Println("⚠️  Traefik not found.")
 		if err := traefik.Install(); err != nil {
-			fmt.Println("❌ Failed to install Traefik:", err)
-			return
+			log.Fatalf("❌ Failed to install Traefik: %v", err)
 		}
-		fmt.Println("✅ Traefik installed.")
+		log.Println("✅ Traefik installed.")
 	}
 
 	if err := traefik.Verify(); err != nil {
-		fmt.Println("❌ Traefik install appears broken:", err)
-		return
+		log.Fatalf("❌ Traefik verification failed: %v", err)
 	}
 
+	// Pick a free TCP port for later use (for app ingress)
 	port, err := getFreePortInRange(portMin, portMax)
 	if err != nil {
 		log.Fatalf("❌ No free port found: %v", err)
 	}
-	fmt.Printf("✅ Free port selected: %d\n", port)
+	log.Printf("✅ Free port selected: %d", port)
 
+	// Start socket listener (API or ingress intent receiver)
 	listener, err := net.Listen("tcp", socketPort)
 	if err != nil {
-		log.Fatalf("listen error: %v", err)
+		log.Fatalf("❌ Listen error on %s: %v", socketPort, err)
 	}
 	log.Printf("📡 Agent listening on %s", socketPort)
 
+	// Start async TOML processor
 	go queueWorker()
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			log.Printf("accept error: %v", err)
+			log.Printf("❌ Accept error: %v", err)
 			continue
 		}
 		go handle(conn)
