@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -75,9 +76,33 @@ func RenderTOMLFromJSONWithPrompt(raw []byte) (string, error) {
 		choice = strings.TrimSpace(strings.ToLower(choice))
 
 		switch choice {
-		case "y", "p":
+		case "y":
+			// Check if port is already in use
+			if IsPortInUse(ing.ServicePort) {
+				newPort, err := FindNextFreePort(7000, 7100)
+				if err != nil {
+					fmt.Println("❌ No free ports available. Skipping this route.")
+					exposureCache[key] = false
+					continue
+				}
+
+				if PromptUserPortSwitch(ing.ServicePort, newPort) {
+					fmt.Printf("✅ Using port %d instead of %d.\n", newPort, ing.ServicePort)
+					ing.ServicePort = newPort
+				} else {
+					fmt.Println("❌ Skipping due to user decline.")
+					exposureCache[key] = false
+					continue
+				}
+			}
+
 			filtered = append(filtered, ing)
 			exposureCache[key] = true
+
+		case "p":
+			filtered = append(filtered, ing)
+			exposureCache[key] = true
+
 		default:
 			exposureCache[key] = false
 		}
@@ -195,4 +220,35 @@ func getUserChoiceWithCountdownClean(timeout time.Duration) string {
 	fmt.Print("\r\033[K") // clear line
 	fmt.Println("⏱️ No response — defaulting to [N]")
 	return "n"
+}
+
+// Port check helpers
+
+func IsPortInUse(port int) bool {
+	addr := fmt.Sprintf(":%d", port)
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		return true
+	}
+	_ = l.Close()
+	return false
+}
+
+func FindNextFreePort(start, end int) (int, error) {
+	for port := start; port <= end; port++ {
+		if !IsPortInUse(port) {
+			return port, nil
+		}
+	}
+	return 0, fmt.Errorf("no free port found in range %d–%d", start, end)
+}
+
+func PromptUserPortSwitch(oldPort, newPort int) bool {
+	fmt.Printf("⚠️  Port %d is already in use.\n", oldPort)
+	fmt.Printf("Use alternative port %d? [Y/N]: ", newPort)
+
+	reader := bufio.NewReader(os.Stdin)
+	text, _ := reader.ReadString('\n')
+	input := strings.TrimSpace(strings.ToLower(text))
+	return input == "y" || input == "yes"
 }
