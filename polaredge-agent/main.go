@@ -47,11 +47,9 @@ func handle(conn net.Conn) {
 		return
 	}
 	data := buf[:n]
-	log.Printf("📥 Received %d bytes", len(data))
 
 	// Confirm receipt to client immediately
 	_, _ = conn.Write([]byte("ok"))
-	log.Println("📬 Acknowledged to client: ok")
 
 	// Queue for background processing
 	queue <- data
